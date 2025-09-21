@@ -4,10 +4,10 @@ import time
 import os
 from typing import Dict, Optional, List
 from datetime import datetime
-from context_manager import ContextManager, MeetingContext
-from ai_analyzer import AIAnalyzer
-from voice_handler import VoiceHandler
-from speech_transcriber import SpeechTranscriber, TranscriptionEvent
+from .context_manager import ContextManager, MeetingContext
+from .ai_analyzer import AIAnalyzer
+from .voice_handler import VoiceHandler
+from .speech_transcriber import SpeechTranscriber, TranscriptionEvent
 
 
 class VoiceMeetingFacilitatorBot:

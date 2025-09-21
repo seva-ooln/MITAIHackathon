@@ -1,0 +1,41 @@
+services:
+  voice-meeting-bot:
+    build: .
+    container_name: voice-meeting-bot
+    ports:
+      - "3000:3000"  # Zoom SDK port
+    volumes:
+      - .:/app
+      - ./temp:/app/temp
+      - ./data:/app/data
+    environment:
+      - ASSEMBLYAI_API_KEY=${ASSEMBLYAI_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - EXPECTED_PARTICIPANTS=${EXPECTED_PARTICIPANTS}
+      - ZOOM_APP_CLIENT_ID=${ZOOM_APP_CLIENT_ID:-}
+      - ZOOM_APP_CLIENT_SECRET=${ZOOM_APP_CLIENT_SECRET:-}
+      - MEETING_ID=${MEETING_ID:-}
+      - MEETING_PWD=${MEETING_PWD:-}
+      - DISPLAY_NAME=${DISPLAY_NAME:-Python Zoom Bot}
+      - QT_QPA_PLATFORM=offscreen
+      - PULSE_RUNTIME_PATH=/dev/null
+    env_file:
+      - .env
+    command: python zoom_integration_bridge.py
+    stdin_open: true
+    tty: true
+
+  # Optional API service (uncomment if needed)
+  # api-service:
+  #   build: .
+  #   container_name: voice-bot-api
+  #   ports:
+  #     - "8000:8000"
+  #   volumes:
+  #     - .:/app
+  #   environment:
+  #     - ASSEMBLYAI_API_KEY=${ASSEMBLYAI_API_KEY}
+  #     - OPENAI_API_KEY=${OPENAI_API_KEY}
+  #   env_file:
+  #     - .env
+  #   command: python api_service.py

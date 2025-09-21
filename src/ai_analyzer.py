@@ -2,7 +2,7 @@ import os
 from typing import Dict, List, Optional
 from openai import OpenAI
 from dotenv import load_dotenv
-from context_manager import MeetingContext
+from .context_manager import MeetingContext
 
 load_dotenv()
 

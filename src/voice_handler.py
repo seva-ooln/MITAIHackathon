@@ -18,10 +18,23 @@ class VoiceHandler:
     def __init__(self):
         self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
         self.recognizer = sr.Recognizer()
-        self.microphone = sr.Microphone()
+
+        # Try to initialize microphone, handle Docker/no audio device case
+        try:
+            self.microphone = sr.Microphone()
+        except OSError as e:
+            print(f"Warning: No audio input device available: {e}")
+            self.microphone = None
 
         # Initialize pygame mixer for audio playback
-        pygame.mixer.init()
+        self.mixer_available = False
+        try:
+            pygame.mixer.init()
+            self.mixer_available = True
+            print("✅ Audio output initialized successfully")
+        except pygame.error as e:
+            print(f"Warning: Audio output initialization failed: {e}")
+            print("🔇 Running in silent mode - text output only")
 
         # Voice settings
         self.tts_voice = "alloy"  # OpenAI TTS voice options: alloy, echo, fable, onyx, nova, shimmer
@@ -44,6 +57,11 @@ class VoiceHandler:
     def text_to_speech(self, text: str) -> bool:
         """Convert text to speech using OpenAI TTS and play it"""
         try:
+            # Check if mixer is available
+            if not self.mixer_available:
+                print("🔇 Audio not available - text only mode")
+                return False
+
             response = self.client.audio.speech.create(
                 model="tts-1",
                 voice=self.tts_voice,
