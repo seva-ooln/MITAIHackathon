@@ -1,0 +1,20 @@
+services:
+  develop: &develop
+    build: ./
+    volumes:
+     - .:/tmp/py-zoom-meeting-sdk
+    ports:
+      - "3000:3000"
+    environment:
+      - ZOOM_APP_CLIENT_ID
+      - ZOOM_APP_CLIENT_SECRET
+      - MEETING_URLS
+      - MEETING_ID
+      - MEETING_PWD
+      - DISPLAY_NAME
+      - ASSEMBLYAI_API_KEY
+      - QT_QPA_PLATFORM=offscreen
+      - PULSE_RUNTIME_PATH=/dev/null
+    stdin_open: true
+    tty: true
+    network_mode: host
