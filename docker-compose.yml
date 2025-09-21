@@ -8,6 +8,8 @@ services:
       - .:/app
       - ./temp:/app/temp
       - ./data:/app/data
+      - /mnt/wslg:/mnt/wslg:rw
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
     environment:
       - ASSEMBLYAI_API_KEY=${ASSEMBLYAI_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -18,7 +20,8 @@ services:
       - MEETING_PWD=${MEETING_PWD:-}
       - DISPLAY_NAME=${DISPLAY_NAME:-Python Zoom Bot}
       - QT_QPA_PLATFORM=offscreen
-      - PULSE_RUNTIME_PATH=/dev/null
+      - PULSE_RUNTIME_PATH=/mnt/wslg/PulseServer
+      - PULSE_AUDIO_SERVER=unix:/mnt/wslg/PulseAudio
     env_file:
       - .env
     command: python zoom_integration_bridge.py

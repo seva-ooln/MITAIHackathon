@@ -9,3 +9,4 @@ pygame>=2.5.0
 assemblyai>=0.20.0
 websockets>=11.0.0
 numpy>=1.24.0
+zoom_meeting_sdk

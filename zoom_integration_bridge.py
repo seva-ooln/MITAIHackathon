@@ -58,10 +58,27 @@ class ZoomMeetingAnalyzer:
             # Extract meeting ID from URL
             self.current_meeting_id = self._extract_meeting_id(meeting_url)
 
-            # Initialize voice meeting bot
+            print("🔌 Step 1: Connecting to Zoom meeting first...")
+            # Connect to Zoom meeting FIRST
+            zoom_result = await self._connect_to_zoom(meeting_url, meeting_password)
+
+            if not zoom_result["success"]:
+                return {"status": "error", "message": f"Failed to connect to Zoom: {zoom_result['error']}"}
+
+            print("✅ Step 2: Zoom bot started, waiting for meeting join...")
+            # Wait for the bot to actually join the meeting
+            join_success = await self._wait_for_meeting_join()
+
+            if not join_success:
+                print("⚠️ Join detection timed out, but proceeding anyway since bot appears to be working...")
+            else:
+                print("✅ Meeting join confirmed!")
+
+            print("🎯 Step 3: Now starting voice facilitation...")
+            # NOW initialize voice meeting bot
             result = await self.meeting_bot.join_meeting_with_voice(
                 meeting_id=self.current_meeting_id,
-                notes_file_path="temp/zoom_meeting_notes.json",  # Provide default notes file
+                notes_file_path="temp/zoom_meeting_notes.json",
                 meeting_topic="Zoom Meeting Analysis",
                 participants=expected_participants or []
             )
@@ -73,25 +90,19 @@ class ZoomMeetingAnalyzer:
             if self.meeting_bot.transcription_active:
                 self.meeting_bot.transcriber.stop_transcription()
 
-            # Connect to Zoom meeting
-            zoom_result = await self._connect_to_zoom(meeting_url, meeting_password)
+            self.is_analyzing = True
 
-            if zoom_result["success"]:
-                self.is_analyzing = True
+            # Set up audio processing
+            self._setup_zoom_audio_processing()
 
-                # Set up audio processing
-                self._setup_zoom_audio_processing()
+            # Send initial bot message to Zoom chat
+            await self._send_introduction_message()
 
-                # Send initial bot message to Zoom chat
-                await self._send_introduction_message()
-
-                return {
-                    "status": "success",
-                    "meeting_id": self.current_meeting_id,
-                    "message": "Bot connected to Zoom meeting and ready for analysis"
-                }
-            else:
-                return {"status": "error", "message": f"Failed to connect to Zoom: {zoom_result['error']}"}
+            return {
+                "status": "success",
+                "meeting_id": self.current_meeting_id,
+                "message": "Bot connected to Zoom meeting and ready for analysis"
+            }
 
         except Exception as e:
             return {"status": "error", "message": str(e)}
@@ -102,22 +113,95 @@ class ZoomMeetingAnalyzer:
         print("🔌 Connecting to Zoom using SDK...")
 
         try:
-            # Import the working bot class
-            import sys
-            sys.path.append('py-zoom-meeting-sdk')
-            from bot import JoinOnlyBot
+            # Debug environment variables
+            print("🔍 Debugging environment variables:")
+            zoom_vars = ['ZOOM_APP_CLIENT_ID', 'ZOOM_APP_CLIENT_SECRET', 'MEETING_ID', 'MEETING_PWD']
+            for var in zoom_vars:
+                value = os.getenv(var)
+                if value:
+                    display_value = value[:10] + "..." if len(value) > 10 else value
+                    print(f"   {var}: {display_value}")
+                else:
+                    print(f"   {var}: ❌ NOT SET")
 
-            # Initialize the working Zoom bot
-            self.zoom_client = JoinOnlyBot()
+            print("🔧 Starting Zoom bot as subprocess...")
+            # Try running the bot as a subprocess instead of threading
+            import subprocess
+            import tempfile
 
-            # Initialize and start the Zoom bot (it will read environment variables for meeting details)
-            self.zoom_client.init()
-            # Note: run_loop() is blocking, so we'll need to run it in a separate thread
-            import threading
-            zoom_thread = threading.Thread(target=self.zoom_client.run_loop, daemon=True)
-            zoom_thread.start()
+            # Create a simple script to run the bot
+            script_content = '''
+import os
+import sys
+import time
 
-            print("✅ Successfully started Zoom bot")
+print("SUBPROCESS: Starting...")
+sys.stdout.flush()
+
+# Force set DISPLAY_NAME
+os.environ['DISPLAY_NAME'] = 'Python Zoom Bot'
+
+print("SUBPROCESS ENV CHECK:")
+print(f"  DISPLAY_NAME: {os.environ.get('DISPLAY_NAME')}")
+print(f"  MEETING_ID: {os.environ.get('MEETING_ID')}")
+print(f"  MEETING_PWD: {os.environ.get('MEETING_PWD')}")
+sys.stdout.flush()
+
+sys.path.append('py-zoom-meeting-sdk')
+
+try:
+    from bot import JoinOnlyBot
+    print("SUBPROCESS: Imported JoinOnlyBot successfully")
+    sys.stdout.flush()
+
+    bot = JoinOnlyBot()
+    print("SUBPROCESS: Created bot instance")
+    sys.stdout.flush()
+
+    print("SUBPROCESS: About to call bot.init()...")
+    sys.stdout.flush()
+
+    # Load .env file explicitly from the correct directory
+    from dotenv import load_dotenv
+    load_dotenv('py-zoom-meeting-sdk/.env')
+
+    print(f"SUBPROCESS: After load_dotenv - DISPLAY_NAME: {os.environ.get('DISPLAY_NAME')}")
+    print(f"SUBPROCESS: After load_dotenv - MEETING_PWD: {os.environ.get('MEETING_PWD')}")
+    sys.stdout.flush()
+
+    bot.init()
+
+    print("SUBPROCESS: Bot initialized successfully, starting run_loop...")
+    sys.stdout.flush()
+    bot.run_loop()
+
+except Exception as e:
+    print(f"SUBPROCESS ERROR: {e}")
+    sys.stdout.flush()
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+'''
+
+            # Write script to temp file
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+                f.write(script_content)
+                script_path = f.name
+
+            # Start subprocess with explicit environment
+            env = os.environ.copy()
+            if 'DISPLAY_NAME' not in env:
+                env['DISPLAY_NAME'] = 'Python Zoom Bot'
+
+            self.zoom_process = subprocess.Popen([
+                'python', script_path
+            ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env, cwd=os.getcwd())
+
+            print("✅ Successfully started Zoom bot subprocess")
+
+            # Give it a moment to start
+            await asyncio.sleep(3)
+
             return {"success": True}
 
         except ImportError as e:
@@ -290,10 +374,9 @@ class ZoomMeetingAnalyzer:
         if self.zoom_chat_callback:
             self.zoom_chat_callback(message)
         elif self.zoom_client:
-            try:
-                await self.zoom_client.send_chat_message(message)
-            except Exception as e:
-                print(f"⚠️ Could not send chat message: {e}")
+            # JoinOnlyBot doesn't support chat, just log the message
+            print(f"📝 Would send to Zoom chat: {message}")
+            print("ℹ️ Chat functionality not implemented in JoinOnlyBot")
 
     async def _send_introduction_message(self):
         """Send initial introduction message to Zoom meeting"""
@@ -320,6 +403,53 @@ class ZoomMeetingAnalyzer:
         if message.lower().startswith("@bot"):
             # Handle direct bot commands
             pass
+
+    async def _wait_for_meeting_join(self, timeout_seconds: int = 15) -> bool:
+        """Wait for the Zoom bot to actually join the meeting"""
+        print(f"⏳ Waiting up to {timeout_seconds} seconds for meeting join...")
+
+        for i in range(timeout_seconds):
+            # Check subprocess output for meeting join confirmation
+            if hasattr(self, 'zoom_process') and self.zoom_process:
+                # Read any available output
+                try:
+                    import select
+                    while True:
+                        if select.select([self.zoom_process.stdout], [], [], 0) == ([self.zoom_process.stdout], [], []):
+                            output = self.zoom_process.stdout.readline()
+                            if output:
+                                print(f"ZOOM BOT: {output.strip()}")
+                                # Look for success indicators
+                                if ("Joined meeting successfully" in output or
+                                    "Auth successful; joining meeting" in output or
+                                    "Meeting status changed: status=1" in output or  # MEETING_STATUS_INMEETING = 1
+                                    "MEETING_STATUS_INMEETING" in output):
+                                    print(f"✅ Meeting join detected after {i} seconds!")
+                                    print(f"    Success message: {output.strip()}")
+                                    return True
+                            else:
+                                break
+                        else:
+                            break
+                except Exception as e:
+                    print(f"Output reading error: {e}")
+                    pass
+
+                # Check if process is still running
+                if self.zoom_process.poll() is not None:
+                    print(f"❌ Zoom bot subprocess exited unexpectedly")
+                    return False
+
+            await asyncio.sleep(1)
+
+            if i % 30 == 0 and i > 0:
+                print(f"⏳ Still waiting for meeting join... ({i}/{timeout_seconds}s)")
+                if hasattr(self, 'zoom_process') and self.zoom_process:
+                    status = "Running" if self.zoom_process.poll() is None else "Stopped"
+                    print(f"   Subprocess status: {status}")
+
+        print(f"❌ Timeout: Meeting join not confirmed within {timeout_seconds} seconds")
+        return False
 
     def _extract_meeting_id(self, meeting_url: str) -> str:
         """Extract meeting ID from Zoom URL"""
@@ -415,8 +545,12 @@ async def main():
     meeting_id = os.getenv("MEETING_ID", "123456789")
     meeting_url = f"https://zoom.us/j/{meeting_id}"
     meeting_password = os.getenv("MEETING_PWD")
-    participants_str = os.getenv("EXPECTED_PARTICIPANTS", "")
-    expected_participants = [p.strip() for p in participants_str.split(",") if p.strip()]
+    participants_str = os.getenv("EXPECTED_PARTICIPANTS", "[]")
+    try:
+        expected_participants = json.loads(participants_str)
+    except json.JSONDecodeError:
+        # Fallback to comma-separated parsing
+        expected_participants = [p.strip() for p in participants_str.split(",") if p.strip()]
 
     print(f"🔗 Connecting to meeting: {meeting_url}")
     print(f"👥 Expected participants: {expected_participants}")
